@@ -1,0 +1,152 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"] // Для Docker
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ========== ПОЛЬЗОВАТЕЛИ ==========
+model User {
+  id              BigInt    @id
+  username        String?
+  firstName       String?
+  lastName        String?
+  
+  isAdmin         Boolean   @default(false)
+  isBanned        Boolean   @default(false)
+  
+  totalDownloads  Int       @default(0)
+  lastActiveAt    DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  
+  downloads       Download[]
+  adViews         AdvertisementView[]
+  
+  @@index([username])
+  @@map("users")
+}
+
+// ========== ОБЯЗАТЕЛЬНЫЕ КАНАЛЫ ==========
+model RequiredChannel {
+  id              Int       @id @default(autoincrement())
+  channelId       String    @unique
+  channelName     String
+  channelLink     String?
+  
+  isActive        Boolean   @default(true)
+  priority        Int       @default(0)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@map("required_channels")
+}
+
+// ========== КЕШ ФАЙЛОВ ==========
+model CachedFile {
+  id              Int       @id @default(autoincrement())
+  
+  cacheKey        String    @unique
+  originalUrl     String
+  formatId        String
+  resolution      String
+  
+  fileId          String
+  archiveMessageId Int
+  
+  title           String?
+  uploader        String?
+  duration        Int?
+  fileSize        BigInt?
+  fileType        String
+  
+  downloadCount   Int       @default(1)
+  lastAccessedAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  
+  downloads       Download[]
+  
+  @@index([cacheKey])
+  @@index([originalUrl])
+  @@index([lastAccessedAt])
+  @@map("cached_files")
+}
+
+// ========== ИСТОРИЯ ЗАГРУЗОК ==========
+model Download {
+  id              Int       @id @default(autoincrement())
+  
+  userId          BigInt
+  user            User      @relation(fields: [userId], references: [id])
+  
+  cachedFileId    Int
+  cachedFile      CachedFile @relation(fields: [cachedFileId], references: [id])
+  
+  wasFromCache    Boolean   @default(false)
+  downloadedAt    DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([cachedFileId])
+  @@map("downloads")
+}
+
+// ========== РЕКЛАМА ==========
+model Advertisement {
+  id              Int       @id @default(autoincrement())
+  
+  content         String
+  mediaFileId     String?
+  buttonText      String?
+  buttonUrl       String?
+  
+  isActive        Boolean   @default(true)
+  showInterval    Int       @default(5)
+  
+  viewCount       Int       @default(0)
+  clickCount      Int       @default(0)
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  views           AdvertisementView[]
+  
+  @@map("advertisements")
+}
+
+// ========== ПРОСМОТРЫ РЕКЛАМЫ ==========
+model AdvertisementView {
+  id              Int       @id @default(autoincrement())
+  
+  userId          BigInt
+  user            User      @relation(fields: [userId], references: [id])
+  
+  adId            Int
+  ad              Advertisement @relation(fields: [adId], references: [id])
+  
+  clicked         Boolean   @default(false)
+  viewedAt        DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([adId])
+  @@map("advertisement_views")
+}
+
+// ========== СТАТИСТИКА ==========
+model DailyStats {
+  id              Int       @id @default(autoincrement())
+  date            DateTime  @unique @db.Date
+  
+  newUsers        Int       @default(0)
+  totalDownloads  Int       @default(0)
+  cacheHits       Int       @default(0)
+  cacheMisses     Int       @default(0)
+  
+  createdAt       DateTime  @default(now())
+  
+  @@index([date])
+  @@map("daily_stats")
+}
