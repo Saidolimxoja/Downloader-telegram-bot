@@ -37,7 +37,7 @@
 
 ### **1. Клонируй репозиторий**
 ```bash
-git clone https://github.com/yourusername/kingkong-bot.git
+git clone https://github.com/Saidolimxoja/kingkong-bot.git
 cd kingkong-bot
 ```
 
