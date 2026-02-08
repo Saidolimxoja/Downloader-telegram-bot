@@ -15,11 +15,13 @@ import {
   formatUploadDate,
   createProgressBar,
 } from '../../common/utils/format.utils';
-import { sanitizeFilename } from '../../common/utils/file.utils';
+import {
+  sanitizeFilename,
+  formatFileSize,
+} from '../../common/utils/file.utils';
 import * as crypto from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { formatFileSize } from '../../common/utils/file.utils';
 import { AdvertisementService } from '../advertisement/advertisement.service';
 import { VideoSessionService } from './video-session.service';
 
@@ -46,9 +48,6 @@ export class DownloaderService {
     this.yourUsername = this.config.get<string>('YOUR_USERNAME') || '@your_bot';
   }
 
-  /**
-   * Handle URL sent by user
-   */
   async handleUrl(ctx: Context, url: string): Promise<void> {
     if (!ctx.chat) {
       await ctx.reply('Данная команда доступна только в чатах.');
@@ -62,16 +61,19 @@ export class DownloaderService {
       progressMsg = await ctx.reply('🔍 Анализирую ссылку...');
 
       const videoInfo = await this.ytdlpService.getVideoInfo(url);
-      const videoId = crypto.randomBytes(8).toString('hex');
-      this.videoDataCache.set(videoId, videoInfo);
-      await this.videoSessionService.save(videoId, videoInfo);
+
+      const sessionId = crypto.randomBytes(8).toString('hex');
+
+      this.videoDataCache.set(sessionId, videoInfo);
+      await this.videoSessionService.save(sessionId, videoInfo);
+
       const keyboard = new InlineKeyboard();
 
       videoInfo.formats.forEach((format, idx) => {
-        const key = `${videoId}|${format.formatId}|${format.resolution}`;
+        const key = `${sessionId}|${format.formatId}|${format.resolution}`;
         const sizeText = format.filesize
           ? formatFileSize(format.filesize)
-          : '~? MB';
+          : '~ MB';
         const label =
           format.resolution === 'audio'
             ? `🎵 Аудио • ${sizeText}`
@@ -81,7 +83,6 @@ export class DownloaderService {
         keyboard.text(buttonText, `dl|${key}`).row();
       });
 
-      // БЕЗ экранирования — используем обычный Markdown
       await ctx.api.editMessageText(
         chatId,
         progressMsg.message_id,
@@ -95,23 +96,18 @@ export class DownloaderService {
       );
     } catch (error) {
       this.logger.error('Ошибка анализа видео', error);
+      const errorMsg =
+        '❌ Не удалось проанализировать ссылку.\nВозможно, видео недоступно или слишком длинное.';
       if (progressMsg) {
         await ctx.api
-          .editMessageText(
-            chatId,
-            progressMsg.message_id,
-            '❌ Не удалось проанализировать ссылку.\nПроверьте URL или попробуйте позже.',
-          )
+          .editMessageText(chatId, progressMsg.message_id, errorMsg)
           .catch(() => {});
       } else {
-        await ctx.reply('❌ Ошибка анализа.');
+        await ctx.reply(errorMsg);
       }
     }
   }
 
-  /**
-   * Handle quality/format selection via callback
-   */
   async handleQualitySelection(
     ctx: Context,
     bot: Bot<Context>,
@@ -119,31 +115,21 @@ export class DownloaderService {
     formatId: string,
     resolution: string,
   ): Promise<void> {
-    if (!ctx.chat || !ctx.from) {
-      await ctx.answerCallbackQuery({
-        text: 'Операция недоступна в этом контексте.',
-      });
-      return;
-    }
-
+    if (!ctx.chat || !ctx.from) return;
     const userId = BigInt(ctx.from.id);
 
     let videoData = this.videoDataCache.get(videoId);
-
     if (!videoData) {
-      this.logger.log(`Видео не в памяти, загружаю из БД: ${videoId}`);
       const dbData = await this.videoSessionService.get(videoId);
       if (!dbData) {
         await ctx.answerCallbackQuery({
-          text: '❌ Сессия истекла. Отправьте ссылку заново.',
+          text: '❌ Ссылка устарела. Отправьте видео заново.',
         });
         return;
       }
-      videoData = dbData; // here TS knows it's VideoInfoDto
+      videoData = dbData;
+      this.videoDataCache.set(videoId, videoData);
     }
-
-    this.videoDataCache.set(videoId, videoData);
- // Перед вызовом cacheService.set(...)
 
     const cached = await this.cacheService.get(
       videoData.id,
@@ -152,8 +138,8 @@ export class DownloaderService {
     );
 
     if (cached) {
-      this.logger.log(`Отправка из кеша: ${resolution}`);
-      await ctx.answerCallbackQuery({ text: '⚡ Из кеша!' });
+      this.logger.log(`🎯 HIT Cache: ${resolution}`);
+      await ctx.answerCallbackQuery({ text: '🚀 Мгновенная отправка!' });
 
       const isAudio = resolution === 'audio';
       const caption = `✅ ${videoData.title}\n\n📥 ${resolution}\n\n📢 ${this.yourUsername}`;
@@ -163,7 +149,8 @@ export class DownloaderService {
           await ctx.replyWithAudio(cached.fileId, {
             caption,
             title: videoData.title,
-            performer: videoData.uploader || 'Unknown',
+            // ИСПРАВЛЕНИЕ 1: Добавлено || undefined для совместимости типов
+            performer: videoData.uploader || undefined,
           });
         } else {
           await ctx.replyWithVideo(cached.fileId, {
@@ -175,51 +162,30 @@ export class DownloaderService {
         await this.cacheService.recordCacheHit(cached.id, userId);
         await this.userService.incrementDownloads(userId);
         this.advertisementService.incrementUserDownloads(userId);
-
-        if (await this.advertisementService.shouldShowAd(userId)) {
+        if (await this.advertisementService.shouldShowAd(userId))
           await this.advertisementService.showAd(ctx);
-        }
         return;
-      } catch (err) {
-        this.logger.error(
-          'file_id недействителен, будет скачивание заново',
-          err,
-        );
-        // continue to download
+      } catch (e) {
+        this.logger.warn(`FileID протух, качаем заново...`);
       }
     }
 
-    const downloadKey = `${videoData.id}|${formatId}|${resolution}`;
-
+    const downloadKey = `${videoData.id}|${formatId}`;
     if (this.activeDownloads.has(downloadKey)) {
-      this.logger.log(`Видео уже в процессе: ${resolution}`);
-      await ctx.answerCallbackQuery({
-        text: '⏳ Уже загружается, пожалуйста, подождите...',
-      });
+      await ctx.answerCallbackQuery({ text: '⏳ Уже скачивается, ждите...' });
       return;
     }
 
-    const queueStatus = this.queueService.getStatus();
-    const position = queueStatus.queued + 1;
-
-    await ctx.answerCallbackQuery({
-      text:
-        queueStatus.total > 0
-          ? `⏳ Позиция в очереди: ${position}`
-          : '⬇️ Начинаю скачивание...',
-    });
+    await ctx.answerCallbackQuery({ text: '⬇️ Добавлено в очередь...' });
 
     const downloadPromise = this.queueService.add(() =>
-      this.processDownload(ctx, bot, videoData, formatId, resolution, userId),
+      this.processDownload(ctx, bot, videoData!, formatId, resolution, userId),
     );
 
     this.activeDownloads.set(downloadKey, downloadPromise);
     downloadPromise.finally(() => this.activeDownloads.delete(downloadKey));
   }
 
-  /**
-   * Core download → upload → cache → send logic
-   */
   private async processDownload(
     ctx: Context,
     bot: Bot<Context>,
@@ -228,27 +194,24 @@ export class DownloaderService {
     resolution: string,
     userId: bigint,
   ): Promise<void> {
-    if (!ctx.chat || !ctx.from) return;
-
+    if (!ctx.chat) return;
     const chatId = ctx.chat.id;
     let progressMsg;
 
     try {
-      progressMsg = await ctx.reply('⬇️ Скачивание начато...');
+      progressMsg = await ctx.reply('⬇️ Начинаю загрузку...');
 
       const sanitizedTitle = sanitizeFilename(videoData.title);
       const isAudio = resolution === 'audio';
       const fileExt = isAudio ? 'm4a' : 'mp4';
       const outputPath = path.join(
         this.downloadsDir,
-        `${sanitizedTitle}_${resolution}.${fileExt}`,
+        `${sanitizedTitle}_${formatId}.${fileExt}`,
       );
 
-      // Determine correct source URL
+      // ИСПРАВЛЕНИЕ 2: Исправлен синтаксис строки
       const sourceUrl =
-        typeof videoData.url === 'string' && videoData.url.startsWith('http')
-          ? videoData.url
-          : `https://www.youtube.com/watch?v=${videoData.id}`;
+        videoData.url || `https://www.youtube.com/watch?v=${videoData.id}`;
 
       const filepath = await this.ytdlpService.downloadVideo(
         sourceUrl,
@@ -256,27 +219,23 @@ export class DownloaderService {
         outputPath,
         isAudio,
         async (progress) => {
-          const bar = createProgressBar(progress);
-          try {
-            await ctx.api.editMessageText(
-              chatId,
-              progressMsg.message_id,
-              `⬇️ Скачивание\n\n${bar} ${progress.toFixed(0)}%`,
-            );
-          } catch {
-            // silent
+          if (progress % 10 === 0 || progress >= 100) {
+            const bar = createProgressBar(progress);
+            try {
+              await ctx.api.editMessageText(
+                chatId,
+                progressMsg.message_id,
+                `⬇️ Скачивание\n${bar} ${Math.floor(progress)}%`,
+              );
+            } catch {}
           }
         },
       );
 
-      await fs.access(filepath);
-      const stats = await fs.stat(filepath);
-
-      // ✅ БЕЗ parse_mode
       await ctx.api.editMessageText(
         chatId,
         progressMsg.message_id,
-        '📤 Загрузка в канал...',
+        '📤 Загрузка в Телеграм...',
       );
 
       const uploadResult = await this.uploaderService.upload(
@@ -285,46 +244,48 @@ export class DownloaderService {
         isAudio ? 'audio' : 'video',
         {
           title: videoData.title,
-          uploader: videoData.uploader || 'Unknown',
-          duration: videoData.duration || 0,
-          resolution,
-          formatId,
+          // ИСПРАВЛЕНИЕ 3: Добавлено || undefined и недостающие поля
+          duration: videoData.duration || undefined,
+          resolution: resolution, // Требуется для UploaderService
+          formatId: formatId, // Требуется для UploaderService
+          uploader: videoData.uploader || undefined,
         },
         async (progress) => {
-          const bar = createProgressBar(progress);
-          try {
-            await ctx.api.editMessageText(
-              chatId,
-              progressMsg.message_id,
-              `📤 Загрузка\n\n${bar} ${progress}%`,
-            );
-          } catch {
-            // silent
+          if (progress % 10 === 0) {
+            const bar = createProgressBar(progress);
+            try {
+              await ctx.api.editMessageText(
+                chatId,
+                progressMsg.message_id,
+                `📤 Отправка\n${bar} ${progress}%`,
+              );
+            } catch {}
           }
         },
       );
 
+      // --- СОХРАНЕНИЕ В БАЗУ (КЕШ) ---
       await this.cacheService.set({
         url: videoData.id,
-        formatId,
-        resolution,
+        formatId: formatId,
+        resolution: resolution,
         fileId: uploadResult.fileId,
+        // ИСПРАВЛЕНИЕ 4: Добавлен обязательный параметр archiveMessageId
         archiveMessageId: uploadResult.messageId,
-        title: videoData.title,
-        uploader: videoData.uploader || undefined,
-        duration: videoData.duration || undefined,
-        fileSize: BigInt(stats.size),
+        fileSize: BigInt((await fs.stat(filepath)).size),
         fileType: isAudio ? 'audio' : 'video',
-        userId,
+        userId: userId,
+        title: videoData.title,
+        duration: videoData.duration || undefined,
+        uploader: videoData.uploader || undefined,
       });
 
       const userCaption = `✅ ${videoData.title}\n\n📥 ${resolution}\n\n📢 ${this.yourUsername}`;
-
       if (isAudio) {
         await ctx.replyWithAudio(uploadResult.fileId, {
           caption: userCaption,
           title: videoData.title,
-          performer: videoData.uploader || 'Unknown',
+          performer: videoData.uploader || undefined,
         });
       } else {
         await ctx.replyWithVideo(uploadResult.fileId, {
@@ -333,44 +294,26 @@ export class DownloaderService {
         });
       }
 
-      // ✅ БЕЗ parse_mode
-      await ctx.api.editMessageText(
-        chatId,
-        progressMsg.message_id,
-        `✅ Готово!\n\n📦 ${videoData.title}\n📥 ${resolution}`,
-      );
+      await ctx.api
+        .deleteMessage(chatId, progressMsg.message_id)
+        .catch(() => {});
 
+      await fs.unlink(filepath).catch(() => {});
       await this.userService.incrementDownloads(userId);
-      this.advertisementService.incrementUserDownloads(userId);
-
-      if (await this.advertisementService.shouldShowAd(userId)) {
-        this.logger.log(`Показ рекламы пользователю ${userId}`);
-        await this.advertisementService.showAd(ctx);
-      }
-
-      await fs
-        .unlink(filepath)
-        .catch((err) =>
-          this.logger.warn(`Не удалось удалить временный файл: ${err.message}`),
-        );
     } catch (error) {
-      this.logger.error('Ошибка в процессе скачивания/загрузки', error);
-
+      this.logger.error(`Download failed: ${error}`);
       if (progressMsg) {
         await ctx.api
           .editMessageText(
             chatId,
             progressMsg.message_id,
-            `❌ Ошибка: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`,
+            `❌ Ошибка при скачивании`,
           )
           .catch(() => {});
       }
     }
   }
 
-  /**
-   * Get service statistics
-   */
   async getStats() {
     const queueStatus = this.queueService.getStatus();
     const cacheStats = await this.cacheService.getStats();

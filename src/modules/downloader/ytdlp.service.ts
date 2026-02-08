@@ -1,9 +1,8 @@
-// src/modules/downloader/ytdlp.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import { existsSync } from 'fs'; // Для проверки cookie файла
 import { VideoInfoDto, FormatDto } from './dto/video-info.dto';
 
 const execAsync = promisify(exec);
@@ -12,48 +11,59 @@ const execAsync = promisify(exec);
 export class YtdlpService {
   private readonly logger = new Logger(YtdlpService.name);
   private readonly ytdlpPath: string;
+  private readonly cookiesPath: string;
 
   constructor(private config: ConfigService) {
     this.ytdlpPath = this.config.get<string>('YTDLP_PATH') || 'yt-dlp';
+    // Путь к куки файлу (должен лежать в корне проекта)
+    this.cookiesPath = './youtube_cookies.txt'; 
   }
 
   /**
-   * Получить информацию о видео
+   * 1. ПОЛУЧЕНИЕ ИНФОРМАЦИИ
    */
   async getVideoInfo(url: string): Promise<VideoInfoDto> {
-    this.logger.log(`Получение информации: ${url}`);
+    this.logger.log(`🔍 Анализ: ${url}`);
 
     try {
-      const { stdout } = await execAsync(
-        `${this.ytdlpPath} --remote-components ejs:github --dump-json --no-playlist "${url}"`,
-      );
-      // ... остальной код
+      // --dump-single-json лучше для обработки ошибок плейлистов
+      const command = [
+        `"${this.ytdlpPath}"`,
+        `--dump-single-json`,
+        `--no-playlist`,
+        `--no-warnings`,
+        `"${url}"`
+      ];
 
+      // Добавляем куки только если файл существует
+      if (existsSync(this.cookiesPath)) {
+        command.splice(1, 0, `--cookies "${this.cookiesPath}"`);
+      }
+
+      const { stdout } = await execAsync(command.join(' '));
       const data = JSON.parse(stdout);
-
-      // Парсим форматы
-      const formats = this.getBestFormats(data.formats || []);
 
       return {
         id: data.id,
-        url: data.webpage_url || url, // ДОБАВЬ ЭТУ СТРОКУ (убирает ошибку TS2741)
+        url: data.webpage_url || url,
         title: data.title,
-        uploader: data.uploader || data.channel || null,
-        duration: data.duration || null,
-        viewCount: data.view_count || null,
-        likeCount: data.like_count || null,
-        uploadDate: data.upload_date || null,
-        thumbnail: data.thumbnail || null,
-        formats,
+        uploader: data.uploader || data.channel || 'Unknown',
+        duration: data.duration || 0,
+        viewCount: data.view_count || 0,
+        likeCount: data.like_count || 0,
+        uploadDate: data.upload_date || '',
+        thumbnail: data.thumbnail || '',
+        formats: this.getBestFormats(data.formats || []),
       };
     } catch (error) {
-      this.logger.error(`Ошибка получения информации: ${error}`);
-      throw new Error('Не удалось получить информацию о видео');
+      this.logger.error(`Ошибка getVideoInfo: ${error}`);
+      throw new Error('Видео недоступно или ссылка неверна.');
     }
   }
 
   /**
-   * Получить лучшие форматы (без 144p/240p)
+   * 2. ФИЛЬТРАЦИЯ ФОРМАТОВ
+   * Исправил логику, чтобы точнее определять размер
    */
   private getBestFormats(formats: any[]): FormatDto[] {
     const videoFormats = new Map<number, FormatDto>();
@@ -62,39 +72,40 @@ export class YtdlpService {
     formats.forEach((f) => {
       const hasVideo = f.vcodec && f.vcodec !== 'none';
       const hasAudio = f.acodec && f.acodec !== 'none';
+      
+      // Ищем размер: filesize (точный) > filesize_approx (примерный) > 0
+      const size = f.filesize || f.filesize_approx || 0;
 
-      if (!hasAudio && !hasVideo) return;
-
-      // Только аудио
+      // --- АУДИО ---
       if (!hasVideo && hasAudio) {
         audioFormats.push({
           formatId: f.format_id,
           ext: 'm4a',
           resolution: 'audio',
-          filesize: f.filesize || f.filesize_approx || null,
+          filesize: size,
           quality: 0,
           hasAudio: true,
         });
       }
-      // Видео
-      else if (hasVideo && f.height) {
-        const height = f.height;
+      // --- ВИДЕО ---
+      else if (hasVideo) {
+        const height = f.height || 0;
+        if (height < 144) return; // Совсем мусор пропускаем
 
-        // Пропускаем низкое качество
-        if (height < 360) return;
-
-        const filesize = f.filesize || f.filesize_approx || null;
-
-        // Сохраняем лучший формат для каждого разрешения
-        if (
-          !videoFormats.has(height) ||
-          filesize > (videoFormats.get(height)?.filesize || 0)
-        ) {
-          videoFormats.set(height, {
+        // Логика: Если у нас уже есть такое качество (например 1080p),
+        // мы заменяем его только если текущий файл "тяжелее" (значит битрейт выше)
+        // НО! Для Telegram бота иногда лучше брать mp4 контейнер приоритетно.
+        
+        const existing:any = videoFormats.get(height);
+        
+        // Если формата еще нет ИЛИ новый формат больше (лучше качество)
+        // Но исключаем форматы, которые весят неадекватно мало (глюк API)
+        if (size > 0 && (!existing || size > existing.filesize)) {
+           videoFormats.set(height, {
             formatId: f.format_id,
-            ext: 'mp4',
+            ext: 'mp4', // Мы все равно сконвертируем в mp4
             resolution: `${height}p`,
-            filesize: filesize,
+            filesize: size, // Это размер ТОЛЬКО видеодорожки
             quality: height,
             hasAudio: hasAudio,
           });
@@ -102,146 +113,131 @@ export class YtdlpService {
       }
     });
 
-    // Сортируем по качеству (от высокого к низкому)
-    const videoList = Array.from(videoFormats.values())
-      .sort((a, b) => b.quality - a.quality)
-      .slice(0, 7); // Макс 7 вариантов
+    // Сортировка: 1080p -> 720p -> ...
+    const sortedVideos = Array.from(videoFormats.values())
+      .sort((a, b) => b.quality - a.quality);
 
-    // Добавляем лучший аудио формат
-    const bestAudio = audioFormats.sort(
-      (a, b) => (b.filesize || 0) - (a.filesize || 0),
-    )[0];
+    // Берем лучшее аудио (обычно m4a)
+    const bestAudio = audioFormats.sort((a:any, b:any) => b.filesize - a.filesize)[0];
+    
+    // Если есть аудио, добавляем его в конец списка (для кнопки "Скачать MP3")
+    if (bestAudio) sortedVideos.push(bestAudio);
 
-    const result = [...videoList];
-    if (bestAudio) result.push(bestAudio);
-
-    return result;
+    return sortedVideos;
   }
 
   /**
-   * Скачать видео с прогрессом
+   * 3. СКАЧИВАНИЕ
+   * Вот здесь исправлена проблема с 800MB
    */
   async downloadVideo(
     url: string,
-    formatId: string,
-    outputPath: string,
+    formatId: string, // <-- Сюда придет, например, "137" (это видео 1080p весом 130мб)
+    outputPath: string, // Полный путь c/без расширения
     isAudio: boolean,
     onProgress: (progress: number) => void,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
-      this.logger.log(`Начало загрузки: ${url} (формат: ${formatId})`);
+      this.logger.log(`🚀 Старт загрузки: ${url} | Format: ${formatId}`);
 
-      const isInstagram = url.includes('instagram.com');
-      const outputPathWithoutExt = outputPath.replace(/\.[^.]+$/, '');
+      // Убираем расширение из outputPath, yt-dlp сам добавит .mp4/.m4a
+      // Если outputPath = "/downloads/video.mp4", делаем "/downloads/video"
+      const outputPathBase = outputPath.replace(/\.(mp4|m4a|webm)$/, '');
 
-      // 1. Базовые аргументы
       const args = [
-        '--no-update',
-        '--newline',
-        '--restrict-filenames',
+        url,
         '--no-playlist',
+        '--no-mtime', // Не сохранять дату изменения файла (важно для ТГ)
+        '--no-part',  // Не создавать .part файлы (сразу писать итог)
+        '--output', `${outputPathBase}.%(ext)s`,
+        
+        // Для удобного парсинга прогресса
+        '--newline', 
+        '--progress-template', '%(progress._percent_str)s',
       ];
 
-      // 2. COOKIES — Для Instagram это ОБЯЗАТЕЛЬНО
-      // Убедись, что файл лежит в корне проекта
-      args.push('--cookies', './youtube_cookies.txt');
-
-      // 3. Настройка формата
-      if (isInstagram) {
-        // В Инсте просто берем лучшее видео с аудио
-        args.push('-f', 'bestvideo+bestaudio/best');
-      } else {
-        // Для YouTube оставляем твою логику
-        const format = formatId.includes('+')
-          ? formatId
-          : `${formatId}+bestaudio/best`;
-        args.push('-f', format);
-        args.push('--remote-components', 'ejs:github');
-        args.push('--extractor-args', 'youtube:player-client=ios,web');
+      // 1. Cookies (если есть)
+      if (existsSync(this.cookiesPath)) {
+        args.push('--cookies', this.cookiesPath);
       }
 
-      // 4. Обработка Аудио / Видео
+      // 2. Выбор формата (САМОЕ ВАЖНОЕ)
       if (isAudio) {
+        // Скачать лучшее аудио и конвертировать в m4a (легче для айфонов/тг)
+        args.push('-f', 'bestaudio/best');
         args.push('--extract-audio', '--audio-format', 'm4a');
       } else {
-        args.push(
-          '--merge-output-format',
-          'mp4',
-          '--postprocessor-args',
-          'ffmpeg:-c:v libx264 -pix_fmt yuv420p -movflags +faststart',
-        );
+        // --- МАГИЯ ЗДЕСЬ ---
+        // formatId - это ID видеодорожки (например, 137).
+        // Мы говорим: "Возьми видеодорожку 137 И приклей к ней лучший звук".
+        // merge-output-format mp4 гарантирует, что на выходе будет MP4 (не MKV).
+        args.push('-f', `${formatId}+bestaudio/best`);
+        args.push('--merge-output-format', 'mp4');
+        
+        // Опционально: убедиться, что видео кодек совместим с Telegram
+        // (обычно yt-dlp сам справляется, но если видео не грузится в тг, раскомментируй)
+        // args.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac');
       }
 
-      // Финальный путь и URL
-      args.push('-o', outputPathWithoutExt + '.%(ext)s');
-      args.push(url);
-
-      const process = spawn(this.ytdlpPath, args, {
-        windowsHide: true,
-        shell: false,
-      });
+      const child = spawn(this.ytdlpPath, args);
 
       let lastProgress = 0;
-      let actualFilePath: string | null = null;
+      let detectedFilename: string | null = null;
 
-      const extractFilePath = (text: string): string | null => {
-        const patterns = [
-          /\[ExtractAudio\] Destination: (.+)/,
-          /\[Merger\] Merging formats into "(.+)"/,
-          /\[ffmpeg\] Destination: (.+)/,
-          /\[download\] Destination: (.+)/,
-        ];
+      // Парсинг вывода
+      child.stdout.on('data', (chunk) => {
+        const text = chunk.toString();
 
-        for (const pattern of patterns) {
-          const match = text.match(pattern);
-          if (match) return match[1].trim();
-        }
-        return null;
-      };
+        // 1. Пытаемся поймать имя файла
+        // [Merger] Merging formats into "downloads/video.mp4"
+        const mergeMatch = text.match(/Merging formats into "(.+?)"/);
+        if (mergeMatch) detectedFilename = mergeMatch[1];
+        
+        // [download] Destination: downloads/video.m4a
+        const destMatch = text.match(/Destination: (.+?)$/m);
+        if (destMatch) detectedFilename = destMatch[1];
 
-      process.stdout.on('data', (data) => {
-        const output = data.toString();
-
-        const detectedPath = extractFilePath(output);
-        if (detectedPath) {
-          actualFilePath = detectedPath;
-        }
-
-        const match = output.match(/(\d+\.\d+)%/);
-        if (match) {
-          const progress = parseFloat(match[1]);
-          if (progress - lastProgress >= 5 || progress === 100) {
-            onProgress(progress);
-            lastProgress = progress;
+        // 2. Парсим проценты
+        // Вывод благодаря --progress-template будет типа " 45.5%"
+        const percentMatch = text.match(/(\d+\.?\d*)%/);
+        if (percentMatch) {
+          const percent = parseFloat(percentMatch[1]);
+          if (!isNaN(percent)) {
+            // Шлем обновление только если изменилось на >5% или финал, чтобы не спамить
+            if (percent - lastProgress >= 5 || percent >= 99) {
+              onProgress(percent);
+              lastProgress = percent;
+            }
           }
         }
       });
 
-      process.stderr.on('data', (data) => {
-        const output = data.toString();
-        this.logger.debug(`[yt-dlp stderr]: ${output}`); // Добавьте это!
-        const detectedPath = extractFilePath(output);
-        if (detectedPath) {
-          actualFilePath = detectedPath;
-        }
+      child.stderr.on('data', (chunk) => {
+         // yt-dlp иногда пишет варнинги в stderr, это ок.
+         // Но критические ошибки тоже тут.
+         const text = chunk.toString();
+         if (text.toLowerCase().includes('error')) {
+             this.logger.debug(`yt-dlp stderr: ${text}`);
+         }
       });
 
-      process.on('close', (code) => {
+      child.on('close', (code) => {
         if (code === 0) {
-          const finalPath =
-            actualFilePath ||
-            outputPathWithoutExt + (isAudio ? '.m4a' : '.mp4');
-          this.logger.log(`✅ Загрузка завершена: ${finalPath}`);
-          resolve(finalPath);
+            // Если мы не смогли распарсить имя, пробуем угадать
+            const finalExt = isAudio ? '.m4a' : '.mp4';
+            const finalPath = detectedFilename || `${outputPathBase}${finalExt}`;
+            
+            this.logger.log(`✅ Готово: ${finalPath}`);
+            resolve(finalPath);
         } else {
-          this.logger.error(`❌ yt-dlp завершился с кодом ${code}`);
-          reject(new Error(`yt-dlp завершился с ошибкой (код ${code})`));
+            this.logger.error(`yt-dlp упал с кодом ${code}`);
+            reject(new Error('Ошибка при скачивании файла'));
         }
       });
-
-      process.on('error', (error) => {
-        this.logger.error(`❌ Ошибка процесса yt-dlp: ${error.message}`);
-        reject(error);
+      
+      child.on('error', (err) => {
+          this.logger.error(`Ошибка запуска процесса: ${err}`);
+          reject(err);
       });
     });
   }

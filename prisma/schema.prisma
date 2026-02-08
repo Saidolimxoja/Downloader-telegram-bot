@@ -48,7 +48,7 @@ model RequiredChannel {
 // ========== КЕШ ФАЙЛОВ ==========
 model CachedFile {
   id              Int       @id @default(autoincrement())
-  
+  userId          BigInt?
   cacheKey        String    @unique
   originalUrl     String
   formatId        String
