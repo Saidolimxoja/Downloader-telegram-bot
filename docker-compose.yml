@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: kingkong_db
+    restart: always
+    environment:
+      POSTGRES_USER: kingkong
+      POSTGRES_PASSWORD: strongpassword123
+      POSTGRES_DB: kingkong_bot
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  bot:
+    build: .
+    container_name: kingkong_bot
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      DATABASE_URL: postgresql://kingkong:strongpassword123@postgres:5432/kingkong_bot
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/app/downloads
+
+volumes:
+  postgres_data:
