@@ -149,3 +149,26 @@ model DailyStats {
   @@index([date])
   @@map("daily_stats")
 }
+
+
+model VideoSession {
+  id              String    @id // videoId (hex)
+  
+  originalUrl     String
+  videoId         String    // ID видео (YouTube ID, Instagram ID и т.д.)
+  title           String
+  uploader        String?
+  duration        Int?      // секунды
+  viewCount       BigInt?
+  likeCount       BigInt?
+  uploadDate      String?
+  thumbnail       String?
+  
+  formats         Json      // Массив форматов в JSON
+  
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime  // Автоудаление через 7 дней
+  
+  @@index([expiresAt])
+  @@map("video_sessions")
+}

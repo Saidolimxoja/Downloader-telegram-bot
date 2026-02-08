@@ -5,16 +5,20 @@ import { ConfigService } from '@nestjs/config';
 import { DownloaderService } from './downloader.service';
 import { YtdlpService } from './ytdlp.service';
 import { QueueService } from './queue.service';
+import { VideoSessionService } from './video-session.service'; // ← Добавили
 import { CacheModule } from '../cache/cache.module';
 import { UploaderModule } from '../uploader/uploader.module';
 import { UserModule } from '../user/user.module';
 import { AdvertisementModule } from '../advertisement/advertisement.module';
+import { VideoSessionCleanupService } from './video-session-cleanup.service';
 
 @Module({
   imports: [CacheModule, UploaderModule, UserModule, AdvertisementModule],
   providers: [
     DownloaderService,
     YtdlpService,
+    VideoSessionService,
+    VideoSessionCleanupService, // ← Добавили
     {
       provide: QueueService,
       useFactory: (config: ConfigService) => {

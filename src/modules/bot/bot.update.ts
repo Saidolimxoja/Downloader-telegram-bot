@@ -7,10 +7,12 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { MESSAGES } from '../../common/constants/messages.constant';
 import { DownloaderService } from '../downloader/downloader.service';
 import { AdminScene } from '../admin/admin.scene';
+import { PrismaService } from 'src/database/prisma.service';
 
 @Injectable()
 export class BotUpdate implements OnModuleInit {
   constructor(
+    private prisma:PrismaService,
     private botService: BotService,
     private userService: UserService,
     private subscriptionService: SubscriptionService,
@@ -215,8 +217,6 @@ export class BotUpdate implements OnModuleInit {
 
     // ========== /stats ==========
     bot.command('stats', async (ctx) => {
-      console.log(`📥 /stats от пользователя ${ctx.from?.id}`);
-
       const userId = ctx.from?.id;
       if (!userId) return;
 
@@ -228,14 +228,19 @@ export class BotUpdate implements OnModuleInit {
         }
 
         const userStats = await this.userService.getStats();
+        const downloaderStats = await this.downloaderService.getStats();
+
+        // ✅ Добавляем статистику сессий
+        const sessionsCount = await this.prisma.videoSession.count();
 
         await ctx.reply(
           `📊 *Статистика*\n\n` +
             `👥 Всего пользователей: ${userStats.totalUsers}\n` +
             `🟢 Активных сегодня: ${userStats.activeToday}\n` +
-            `💾 Кеш: —\n` +
-            `🔄 Активно: —\n` +
-            `⏳ Очередь: —`,
+            `💾 Кеш: ${downloaderStats.cacheSize}\n` +
+            `🔄 Активно: ${downloaderStats.activeDownloads}\n` +
+            `⏳ Очередь: ${downloaderStats.queueSize}\n` +
+            `🎬 Видео-сессий: ${sessionsCount}`, // ← Добавили
           { parse_mode: 'Markdown' },
         );
       } catch (error) {
