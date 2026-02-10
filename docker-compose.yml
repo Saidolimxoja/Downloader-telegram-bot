@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql://kingkong:strongpassword123@postgres:5432/kingkong_bot
     volumes:
       - ./downloads:/app/downloads
+    command: ["sh", "-c", "/wait-for-it.sh postgres:5432 -- npm run start:prod"]
 
 volumes:
   postgres_data:

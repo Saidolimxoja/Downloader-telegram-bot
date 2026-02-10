@@ -10,6 +10,7 @@ RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o 
 # Копируем файлы проекта
 COPY package*.json ./
 COPY prisma ./prisma/
+COPY wait-for-it.sh /wait-for-it.sh
 
 RUN npm ci
 
@@ -20,5 +21,6 @@ RUN npm run build
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "until pg_isready -h postgres -p 5432; do echo waiting; sleep 2; done; npm run start:prod"]
+CMD ["sh", "-c", "until pg_isready -h postgres -p 5432; do echo waiting for db; sleep 2; done; npm run start:prod"]
+
 
