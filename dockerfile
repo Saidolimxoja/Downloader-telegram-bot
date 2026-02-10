@@ -47,10 +47,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# ========================
-# PERSISTENT DOWNLOADS
-# ========================
-VOLUME ["/app/downloads"]
+
 
 # ========================
 # EXPOSE PORT
