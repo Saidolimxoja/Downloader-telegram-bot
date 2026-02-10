@@ -6,17 +6,12 @@ FROM node:18-alpine
 # ========================
 # INSTALL SYSTEM DEPENDENCIES
 # ========================
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    ffmpeg \
-    bash \
-    curl \
-    tar \
-    xz \
-    git \
+RUN apk add --no-cache python3 py3-pip ffmpeg bash curl \
     && python3 -m ensurepip \
-    && pip3 install --upgrade pip
+    && pip3 install --upgrade pip \
+    && pip3 install yt-dlp \
+    && ln -s /usr/local/lib/python3.12/site-packages/yt_dlp/__main__.py /usr/local/bin/yt-dlp \
+    && chmod +x /usr/local/bin/yt-dlp
 
 # ========================
 # WORKDIR
@@ -40,7 +35,8 @@ RUN npm ci
 # ========================
 # yt-dlp через pip
 RUN pip3 install yt-dlp
-
+RUN which yt-dlp
+RUN yt-dlp --version
 # ========================
 # COPY REST OF PROJECT
 # ========================
