@@ -2,11 +2,14 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+
 # Установим зависимости системы и бинарь yt-dlp + ffmpeg
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod +x /usr/local/bin/yt-dlp \
     && ls -l /usr/local/bin/
 
+RUN which yt-dlp
+RUN yt-dlp --version
 
 # Копируем файлы проекта
 COPY package*.json ./
