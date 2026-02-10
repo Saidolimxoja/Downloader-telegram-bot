@@ -1,12 +1,12 @@
 # ========================
 # BASE IMAGE
 # ========================
-FROM node:18-alpine
+FROM node:18-bullseye-slim
 
 # ========================
 # SYSTEM DEPENDENCIES
 # ========================
-RUN apk add --no-cache python3 py3-pip ffmpeg bash curl git
+RUN apt-get update && apt-get install -y python3 python3-venv python3-pip ffmpeg bash curl git
 
 # ========================
 # CREATE PYTHON VENV
@@ -18,7 +18,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # INSTALL PYTHON PACKAGES
 # ========================
 RUN pip install --upgrade pip yt-dlp
-
+RUN which yt-dlp
+RUN yt-dlp --version
 # ========================
 # WORKDIR
 # ========================
