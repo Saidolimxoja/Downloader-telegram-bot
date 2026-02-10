@@ -3,9 +3,10 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Установим зависимости системы и бинарь yt-dlp + ffmpeg
-RUN apk add --no-cache ffmpeg curl tar xz
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod +x /usr/local/bin/yt-dlp
+    && chmod +x /usr/local/bin/yt-dlp \
+    && ls -l /usr/local/bin/
+
 
 # Копируем файлы проекта
 COPY package*.json ./

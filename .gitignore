@@ -80,8 +80,6 @@ Thumbs.db
 *.swp
 *.swo
 
-# Prisma
-prisma/migrations/**/migration.sql
 
 # Downloads
 downloads/
