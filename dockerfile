@@ -2,11 +2,12 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Установи ffmpeg и yt-dlp
-RUN apk add --no-cache ffmpeg python3 py3-pip
-RUN pip3 install yt-dlp
+# Установим зависимости системы и бинарь yt-dlp + ffmpeg
+RUN apk add --no-cache ffmpeg curl tar xz
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+    && chmod +x /usr/local/bin/yt-dlp
 
-# Копируй файлы
+# Копируем файлы проекта
 COPY package*.json ./
 COPY prisma ./prisma/
 
