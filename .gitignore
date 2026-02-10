@@ -90,7 +90,6 @@ downloads/
 *.webm
 
 # Cache
-cache/
 /generated/prisma
-
+/scripts
 /generated/prisma
