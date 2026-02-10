@@ -20,4 +20,5 @@ RUN npm run build
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start:prod"]
+CMD ["sh", "-c", "until pg_isready -h postgres -p 5432; do echo waiting; sleep 2; done; npm run start:prod"]
+
