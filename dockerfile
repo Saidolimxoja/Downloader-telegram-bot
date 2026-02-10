@@ -18,6 +18,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # INSTALL PYTHON PACKAGES
 # ========================
 RUN pip install --no-cache-dir --upgrade pip yt-dlp
+RUN yt-dlp --update-to nightly
 RUN which yt-dlp && yt-dlp --version
 # ========================
 # WORKDIR
