@@ -6,8 +6,8 @@ services:
     container_name: kingkong_db
     restart: always
     environment:
-      POSTGRES_USER: kingkong
-      POSTGRES_PASSWORD: strongpassword123
+      POSTGRES_USER: saidaka
+      POSTGRES_PASSWORD: Said
       POSTGRES_DB: kingkong_bot
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -20,10 +20,10 @@ services:
     restart: always
     depends_on:
       - postgres
-    environment:
-      DATABASE_URL: postgresql://kingkong:strongpassword123@postgres:5432/kingkong_bot
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://kingkong:strongpassword123@postgres:5432/kingkong_bot
     volumes:
       - ./downloads:/app/downloads
 
