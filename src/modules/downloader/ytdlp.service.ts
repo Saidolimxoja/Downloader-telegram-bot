@@ -16,7 +16,7 @@ export class YtdlpService {
   constructor(private config: ConfigService) {
     this.ytdlpPath = this.config.get<string>('YTDLP_PATH') || 'yt-dlp';
     // Путь к куки файлу (должен лежать в корне проекта)
-    this.cookiesPath = './youtube_cookies.txt'; 
+    this.cookiesPath = './youtube_cookies.txt';
   }
 
   /**
@@ -32,11 +32,12 @@ export class YtdlpService {
         `--dump-single-json`,
         `--no-playlist`,
         `--no-warnings`,
-        `"${url}"`
+        `"${url}"`,
       ];
 
       // Добавляем куки только если файл существует
       if (existsSync(this.cookiesPath)) {
+        console.log(`Куки-файл найден: ${this.cookiesPath}`);
         command.splice(1, 0, `--cookies "${this.cookiesPath}"`);
       }
 
@@ -72,7 +73,7 @@ export class YtdlpService {
     formats.forEach((f) => {
       const hasVideo = f.vcodec && f.vcodec !== 'none';
       const hasAudio = f.acodec && f.acodec !== 'none';
-      
+
       // Ищем размер: filesize (точный) > filesize_approx (примерный) > 0
       const size = f.filesize || f.filesize_approx || 0;
 
@@ -95,13 +96,13 @@ export class YtdlpService {
         // Логика: Если у нас уже есть такое качество (например 1080p),
         // мы заменяем его только если текущий файл "тяжелее" (значит битрейт выше)
         // НО! Для Telegram бота иногда лучше брать mp4 контейнер приоритетно.
-        
-        const existing:any = videoFormats.get(height);
-        
+
+        const existing: any = videoFormats.get(height);
+
         // Если формата еще нет ИЛИ новый формат больше (лучше качество)
         // Но исключаем форматы, которые весят неадекватно мало (глюк API)
         if (size > 0 && (!existing || size > existing.filesize)) {
-           videoFormats.set(height, {
+          videoFormats.set(height, {
             formatId: f.format_id,
             ext: 'mp4', // Мы все равно сконвертируем в mp4
             resolution: `${height}p`,
@@ -114,12 +115,15 @@ export class YtdlpService {
     });
 
     // Сортировка: 1080p -> 720p -> ...
-    const sortedVideos = Array.from(videoFormats.values())
-      .sort((a, b) => b.quality - a.quality);
+    const sortedVideos = Array.from(videoFormats.values()).sort(
+      (a, b) => b.quality - a.quality,
+    );
 
     // Берем лучшее аудио (обычно m4a)
-    const bestAudio = audioFormats.sort((a:any, b:any) => b.filesize - a.filesize)[0];
-    
+    const bestAudio = audioFormats.sort(
+      (a: any, b: any) => b.filesize - a.filesize,
+    )[0];
+
     // Если есть аудио, добавляем его в конец списка (для кнопки "Скачать MP3")
     if (bestAudio) sortedVideos.push(bestAudio);
 
@@ -148,12 +152,14 @@ export class YtdlpService {
         url,
         '--no-playlist',
         '--no-mtime', // Не сохранять дату изменения файла (важно для ТГ)
-        '--no-part',  // Не создавать .part файлы (сразу писать итог)
-        '--output', `${outputPathBase}.%(ext)s`,
-        
+        '--no-part', // Не создавать .part файлы (сразу писать итог)
+        '--output',
+        `${outputPathBase}.%(ext)s`,
+
         // Для удобного парсинга прогресса
-        '--newline', 
-        '--progress-template', '%(progress._percent_str)s',
+        '--newline',
+        '--progress-template',
+        '%(progress._percent_str)s',
       ];
 
       // 1. Cookies (если есть)
@@ -173,7 +179,7 @@ export class YtdlpService {
         // merge-output-format mp4 гарантирует, что на выходе будет MP4 (не MKV).
         args.push('-f', `${formatId}+bestaudio/best`);
         args.push('--merge-output-format', 'mp4');
-        
+
         // Опционально: убедиться, что видео кодек совместим с Telegram
         // (обычно yt-dlp сам справляется, но если видео не грузится в тг, раскомментируй)
         // args.push('--postprocessor-args', 'ffmpeg:-c:v libx264 -c:a aac');
@@ -192,7 +198,7 @@ export class YtdlpService {
         // [Merger] Merging formats into "downloads/video.mp4"
         const mergeMatch = text.match(/Merging formats into "(.+?)"/);
         if (mergeMatch) detectedFilename = mergeMatch[1];
-        
+
         // [download] Destination: downloads/video.m4a
         const destMatch = text.match(/Destination: (.+?)$/m);
         if (destMatch) detectedFilename = destMatch[1];
@@ -213,31 +219,31 @@ export class YtdlpService {
       });
 
       child.stderr.on('data', (chunk) => {
-         // yt-dlp иногда пишет варнинги в stderr, это ок.
-         // Но критические ошибки тоже тут.
-         const text = chunk.toString();
-         if (text.toLowerCase().includes('error')) {
-             this.logger.debug(`yt-dlp stderr: ${text}`);
-         }
+        // yt-dlp иногда пишет варнинги в stderr, это ок.
+        // Но критические ошибки тоже тут.
+        const text = chunk.toString();
+        if (text.toLowerCase().includes('error')) {
+          this.logger.debug(`yt-dlp stderr: ${text}`);
+        }
       });
 
       child.on('close', (code) => {
         if (code === 0) {
-            // Если мы не смогли распарсить имя, пробуем угадать
-            const finalExt = isAudio ? '.m4a' : '.mp4';
-            const finalPath = detectedFilename || `${outputPathBase}${finalExt}`;
-            
-            this.logger.log(`✅ Готово: ${finalPath}`);
-            resolve(finalPath);
+          // Если мы не смогли распарсить имя, пробуем угадать
+          const finalExt = isAudio ? '.m4a' : '.mp4';
+          const finalPath = detectedFilename || `${outputPathBase}${finalExt}`;
+
+          this.logger.log(`✅ Готово: ${finalPath}`);
+          resolve(finalPath);
         } else {
-            this.logger.error(`yt-dlp упал с кодом ${code}`);
-            reject(new Error('Ошибка при скачивании файла'));
+          this.logger.error(`yt-dlp упал с кодом ${code}`);
+          reject(new Error('Ошибка при скачивании файла'));
         }
       });
-      
+
       child.on('error', (err) => {
-          this.logger.error(`Ошибка запуска процесса: ${err}`);
-          reject(err);
+        this.logger.error(`Ошибка запуска процесса: ${err}`);
+        reject(err);
       });
     });
   }
