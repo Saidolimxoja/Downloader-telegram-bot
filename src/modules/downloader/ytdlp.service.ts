@@ -22,69 +22,45 @@ export class YtdlpService {
   /**
    * 1. ПОЛУЧЕНИЕ ИНФОРМАЦИИ
    */
-async getVideoInfo(url: string): Promise<VideoInfoDto> {
-  this.logger.log(`🔍 Анализ: ${url}`);
+  async getVideoInfo(url: string): Promise<VideoInfoDto> {
+    this.logger.log(`🔍 Анализ: ${url}`);
 
-  try {
-    const command = [
-      `"${this.ytdlpPath}"`,
-      `--dump-single-json`,
-      `--no-playlist`,
-      `--no-warnings`,
-      `--no-check-certificate`,               // игнорировать проблемы с SSL (иногда помогает)
-      `--prefer-free-formats`,                // отдавать предпочтение свободным форматам
-      `--extractor-args`, `youtube:player_client=web,android`,  // эмуляция клиента браузера + Android
-      `--user-agent`, `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"`,
-      `"${url}"`,
-    ];
+    try {
+      // --dump-single-json лучше для обработки ошибок плейлистов
+      const command = [
+        `"${this.ytdlpPath}"`,
+        `--dump-single-json`,
+        `--no-playlist`,
+        `--no-warnings`,
+        `"${url}"`,
+      ];
 
-    // Добавляем куки, если файл существует
-    if (existsSync(this.cookiesPath)) {
-      this.logger.log(`Куки-файл найден и будет использован: ${this.cookiesPath}`);
-      command.splice(1, 0, `--cookies "${this.cookiesPath}"`);
+      // Добавляем куки только если файл существует
+      if (existsSync(this.cookiesPath)) {
+        console.log(`Куки-файл найден: ${this.cookiesPath}`);
+        command.splice(1, 0, `--cookies "${this.cookiesPath}"`);
+      }
+
+      const { stdout } = await execAsync(command.join(' '));
+      const data = JSON.parse(stdout);
+
+      return {
+        id: data.id,
+        url: data.webpage_url || url,
+        title: data.title,
+        uploader: data.uploader || data.channel || 'Unknown',
+        duration: data.duration || 0,
+        viewCount: data.view_count || 0,
+        likeCount: data.like_count || 0,
+        uploadDate: data.upload_date || '',
+        thumbnail: data.thumbnail || '',
+        formats: this.getBestFormats(data.formats || []),
+      };
+    } catch (error) {
+      this.logger.error(`Ошибка getVideoInfo: ${error}`);
+      throw new Error('Видео недоступно или ссылка неверна.');
     }
-
-    // Для отладки: логируем полную команду (можно закомментировать после тестов)
-    this.logger.debug(`Выполняемая команда: ${command.join(' ')}`);
-
-    const { stdout, stderr } = await execAsync(command.join(' '), { timeout: 45000 });
-
-    if (stderr && stderr.includes('ERROR')) {
-      this.logger.warn(`yt-dlp вывел предупреждения/ошибки в stderr: ${stderr.trim()}`);
-    }
-
-    const data = JSON.parse(stdout);
-
-    return {
-      id: data.id,
-      url: data.webpage_url || url,
-      title: data.title,
-      uploader: data.uploader || data.channel || 'Unknown',
-      duration: data.duration || 0,
-      viewCount: data.view_count || 0,
-      likeCount: data.like_count || 0,
-      uploadDate: data.upload_date || '',
-      thumbnail: data.thumbnail || data.thumbnails?.[0]?.url || '',
-      formats: this.getBestFormats(data.formats || []),
-    };
-  } catch (error: any) {
-    this.logger.error(`Ошибка при получении информации о видео: ${error.message || error}`);
-
-    if (error.stdout) {
-      this.logger.debug(`stdout ошибки: ${error.stdout}`);
-    }
-    if (error.stderr) {
-      this.logger.debug(`stderr ошибки: ${error.stderr}`);
-    }
-
-    // Более информативное сообщение для пользователя
-    const errMsg = error.message?.includes('Sign in to confirm') 
-      ? 'Требуется авторизация (YouTube запрашивает подтверждение, что вы не бот). Попробуйте позже или другое видео.'
-      : 'Видео недоступно, ссылка неверна или временно заблокировано на сервере.';
-
-    throw new Error(errMsg);
   }
-}
 
   /**
    * 2. ФИЛЬТРАЦИЯ ФОРМАТОВ
