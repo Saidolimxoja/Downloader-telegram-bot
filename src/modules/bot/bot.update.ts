@@ -12,12 +12,12 @@ import { PrismaService } from 'src/database/prisma.service';
 @Injectable()
 export class BotUpdate implements OnModuleInit {
   constructor(
-    private prisma:PrismaService,
+    private prisma: PrismaService,
     private botService: BotService,
     private userService: UserService,
     private subscriptionService: SubscriptionService,
     private downloaderService: DownloaderService,
-    private adminScene: AdminScene, // ← Добавили
+    private adminScene: AdminScene,
   ) {
     console.log('🔧 BotUpdate: constructor вызван');
   }
@@ -31,6 +31,25 @@ export class BotUpdate implements OnModuleInit {
   private registerHandlers() {
     const bot = this.botService.getBot();
     console.log('📝 Регистрация обработчиков...');
+
+    // ==================== ADMIN COMMANDS ====================
+
+    bot.command('admin', async (ctx) => {
+      const userId = ctx.from?.id;
+      if (!userId) return;
+
+      try {
+        const isAdmin = await this.userService.isAdmin(BigInt(userId));
+        if (!isAdmin) {
+          await ctx.reply(MESSAGES.ERROR_NO_ACCESS);
+          return;
+        }
+
+        await this.adminScene.showMainMenu(ctx);
+      } catch (error) {
+        console.error('❌ Ошибка в /admin:', error);
+      }
+    });
 
     bot.command('checkchannels', async (ctx) => {
       const userId = ctx.from?.id;
@@ -74,50 +93,58 @@ export class BotUpdate implements OnModuleInit {
       }
     });
 
-    // ========== /admin (только админ) ==========
-    bot.command('admin', async (ctx) => {
-      const userId = ctx.from?.id;
-      if (!userId) return;
+    // ==================== ADMIN MENU NAVIGATION ====================
 
-      try {
-        const isAdmin = await this.userService.isAdmin(BigInt(userId));
-        if (!isAdmin) {
-          await ctx.reply(MESSAGES.ERROR_NO_ACCESS);
-          return;
-        }
-
-        await this.adminScene.showMainMenu(ctx);
-      } catch (error) {
-        console.error('❌ Ошибка в /admin:', error);
-      }
-    });
-
-    // ========== ADMIN CALLBACKS ==========
     bot.callbackQuery('admin:main', async (ctx) => {
-      await this.adminScene.showMainMenu(ctx);
       await ctx.answerCallbackQuery();
+      await this.adminScene.showMainMenu(ctx);
     });
 
     bot.callbackQuery('admin:ads', async (ctx) => {
-      await this.adminScene.showAdsMenu(ctx);
       await ctx.answerCallbackQuery();
+      await this.adminScene.showAdsMenu(ctx);
     });
 
     bot.callbackQuery('admin:channels', async (ctx) => {
-      await this.adminScene.showChannelsMenu(ctx);
       await ctx.answerCallbackQuery();
+      await this.adminScene.showChannelsMenu(ctx);
     });
 
     bot.callbackQuery('admin:stats', async (ctx) => {
-      await this.adminScene.showStats(ctx);
       await ctx.answerCallbackQuery();
+      await this.adminScene.showStats(ctx);
     });
+
+    // ==================== CREATE AD FLOW ====================
+
+    // Начать создание объявления
+    bot.callbackQuery('admin:ad:create', async (ctx) => {
+      await ctx.answerCallbackQuery();
+      await this.adminScene.startCreateAd(ctx);
+    });
+
+    // Пропустить медиа
+    bot.callbackQuery('admin:ad:skip_media', async (ctx) => {
+      await this.adminScene.skipMedia(ctx);
+    });
+
+    // Добавить кнопку
+    bot.callbackQuery('admin:ad:add_button', async (ctx) => {
+      await this.adminScene.addButton(ctx);
+    });
+
+    // Пропустить кнопку
+    bot.callbackQuery('admin:ad:skip_button', async (ctx) => {
+      await this.adminScene.skipButton(ctx);
+    });
+
+    // ==================== MANAGE ADS ====================
 
     // Списки для действий
     bot.callbackQuery(/^admin:ad:list:(edit|delete|toggle)$/, async (ctx) => {
       const action = ctx.match[1] as 'edit' | 'delete' | 'toggle';
-      await this.adminScene.showAdsList(ctx, action);
       await ctx.answerCallbackQuery();
+      await this.adminScene.showAdsList(ctx, action);
     });
 
     // Переключение активности
@@ -132,7 +159,77 @@ export class BotUpdate implements OnModuleInit {
       await this.adminScene.deleteAd(ctx, adId);
     });
 
-    // ========== /start ==========
+    // Редактирование
+    bot.callbackQuery(/^admin:ad:edit:(\d+)$/, async (ctx) => {
+      const adId = parseInt(ctx.match[1]);
+      await this.adminScene.startEditAd(ctx, adId);
+    });
+
+    // Выбор поля для редактирования
+    bot.callbackQuery(/^admin:ad:edit_field:(\d+):(\w+)$/, async (ctx) => {
+      const adId = parseInt(ctx.match[1]);
+      const field = ctx.match[2];
+      await this.adminScene.editField(ctx, adId, field);
+    });
+
+    // Удаление медиа
+    bot.callbackQuery(/^admin:ad:remove_media:(\d+)$/, async (ctx) => {
+      const adId = parseInt(ctx.match[1]);
+      await this.adminScene.removeMedia(ctx, adId);
+    });
+
+    // Удаление кнопки
+    bot.callbackQuery(/^admin:ad:remove_button:(\d+)$/, async (ctx) => {
+      const adId = parseInt(ctx.match[1]);
+      await this.adminScene.removeButton(ctx, adId);
+    });
+
+    // Обновление интервала
+    bot.callbackQuery(/^admin:ad:update_interval:(\d+):(\w+)$/, async (ctx) => {
+      const adId = parseInt(ctx.match[1]);
+      const interval = ctx.match[2];
+      await this.adminScene.updateInterval(ctx, adId, interval);
+    });
+
+    // Выбор интервала при создании
+    bot.callbackQuery(/^admin:ad:interval:(\w+)$/, async (ctx) => {
+      const interval = ctx.match[1];
+      await this.adminScene.handleIntervalChoice(ctx, interval);
+    });
+
+    // ==================== MANAGE CHANNELS ====================
+
+    // Создание канала
+    bot.callbackQuery('admin:channel:create', async (ctx) => {
+      await this.adminScene.startCreateChannel(ctx);
+    });
+
+    // Выбор приоритета канала
+    bot.callbackQuery(/^admin:channel:priority:(\d+)$/, async (ctx) => {
+      const priority = ctx.match[1];
+      await this.adminScene.handleChannelPriority(ctx, priority);
+    });
+
+    // Списки каналов для действий
+    bot.callbackQuery(/^admin:channel:list:(toggle|delete)$/, async (ctx) => {
+      const action = ctx.match[1] as 'toggle' | 'delete';
+      await this.adminScene.showChannelsList(ctx, action);
+    });
+
+    // Переключение канала
+    bot.callbackQuery(/^admin:channel:toggle:(\d+)$/, async (ctx) => {
+      const channelId = parseInt(ctx.match[1]);
+      await this.adminScene.toggleChannel(ctx, channelId);
+    });
+
+    // Удаление канала
+    bot.callbackQuery(/^admin:channel:delete:(\d+)$/, async (ctx) => {
+      const channelId = parseInt(ctx.match[1]);
+      await this.adminScene.deleteChannel(ctx, channelId);
+    });
+
+    // ==================== USER COMMANDS ====================
+
     bot.command('start', async (ctx) => {
       console.log(`📥 /start от пользователя ${ctx.from?.id}`);
 
@@ -140,7 +237,6 @@ export class BotUpdate implements OnModuleInit {
       if (!userId) return;
 
       try {
-        // Создаём/обновляем пользователя
         await this.userService.createOrUpdate({
           id: BigInt(userId),
           username: ctx.from?.username,
@@ -148,14 +244,12 @@ export class BotUpdate implements OnModuleInit {
           lastName: ctx.from?.last_name,
         });
 
-        // Проверяем бан
         const isBanned = await this.userService.isBanned(BigInt(userId));
         if (isBanned) {
           await ctx.reply(MESSAGES.ERROR_BANNED);
           return;
         }
 
-        // ✅ ПРОВЕРКА ПОДПИСОК
         const hasSubscription = await this.subscriptionService.checkAll(
           userId,
           bot,
@@ -170,7 +264,6 @@ export class BotUpdate implements OnModuleInit {
           return;
         }
 
-        // Если всё ок — показываем главное меню
         await ctx.reply(MESSAGES.START, { parse_mode: 'Markdown' });
         console.log(`✅ Ответ отправлен пользователю ${userId}`);
       } catch (error) {
@@ -179,22 +272,6 @@ export class BotUpdate implements OnModuleInit {
       }
     });
 
-    // ========== CALLBACK: проверка подписки ==========
-    bot.callbackQuery(/^dl\|(.+)$/, async (ctx) => {
-      const [videoId, formatId, resolution] = ctx.match[1].split('|');
-
-      console.log(`📥 Выбор качества: ${resolution} от ${ctx.from?.id}`);
-
-      await this.downloaderService.handleQualitySelection(
-        ctx,
-        bot, // ← Передаём bot
-        videoId,
-        formatId,
-        resolution,
-      );
-    });
-
-    // ========== /help ==========
     bot.command('help', async (ctx) => {
       console.log(`📥 /help от пользователя ${ctx.from?.id}`);
 
@@ -215,7 +292,6 @@ export class BotUpdate implements OnModuleInit {
       }
     });
 
-    // ========== /stats ==========
     bot.command('stats', async (ctx) => {
       const userId = ctx.from?.id;
       if (!userId) return;
@@ -229,8 +305,6 @@ export class BotUpdate implements OnModuleInit {
 
         const userStats = await this.userService.getStats();
         const downloaderStats = await this.downloaderService.getStats();
-
-        // ✅ Добавляем статистику сессий
         const sessionsCount = await this.prisma.videoSession.count();
 
         await ctx.reply(
@@ -240,7 +314,7 @@ export class BotUpdate implements OnModuleInit {
             `💾 Кеш: ${downloaderStats.cacheSize}\n` +
             `🔄 Активно: ${downloaderStats.activeDownloads}\n` +
             `⏳ Очередь: ${downloaderStats.queueSize}\n` +
-            `🎬 Видео-сессий: ${sessionsCount}`, // ← Добавили
+            `🎬 Видео-сессий: ${sessionsCount}`,
           { parse_mode: 'Markdown' },
         );
       } catch (error) {
@@ -248,7 +322,6 @@ export class BotUpdate implements OnModuleInit {
       }
     });
 
-    // ========== /channelid ==========
     bot.command('channelid', async (ctx) => {
       console.log(`📥 /channelid от пользователя ${ctx.from?.id}`);
 
@@ -260,36 +333,172 @@ export class BotUpdate implements OnModuleInit {
         console.error('❌ Ошибка в /channelid:', error);
       }
     });
+    // ==================== CHECK SUBSCRIPTION ====================
 
-    // ========== Текстовые сообщения (ссылки) ==========
+    // ... внутри registerHandlers() ...
+
+    // Обработка кнопки "✅ Проверить подписку"
+    bot.callbackQuery('check_subscription', async (ctx) => {
+      const userId = ctx.from?.id;
+      if (!userId) return;
+
+      // 1. Проверяем подписку через ваш сервис
+      const isSubscribed = await this.subscriptionService.checkAll(userId, bot);
+
+      if (isSubscribed) {
+        // ✅ УСПЕХ: Пользователь подписался
+
+        // 1. Показываем маленькое уведомление "Подписка подтверждена!"
+        await ctx.answerCallbackQuery({
+          text: MESSAGES.SUBSCRIBE_SUCCESS, // "✅ Подписка подтверждена!"
+        });
+
+        // 2. Удаляем сообщение с кнопками подписки (чтобы не мешало)
+        try {
+          await ctx.deleteMessage();
+        } catch (e) {
+          // Игнорируем, если сообщение уже удалено
+        }
+
+        // 3. Отправляем стартовое сообщение бота
+        await ctx.reply(MESSAGES.START, { parse_mode: 'Markdown' });
+      } else {
+        // ❌ ОШИБКА: Пользователь НЕ подписался
+
+        // Показываем ВСПЛЫВАЮЩЕЕ ОКНО (Alert), чтобы он точно понял
+        await ctx.answerCallbackQuery({
+          text: MESSAGES.SUBSCRIBE_FAILED, // "❌ Ты ещё не подписан на все каналы"
+          show_alert: true, // <--- ВАЖНО: Это сделает окно с кнопкой "ОК"
+        });
+
+        // Сообщение в чате не меняем, пусть кнопки остаются
+      }
+    });
+
+    // ==================== DOWNLOAD FLOW ====================
+
+    bot.callbackQuery(/^dl\|(.+)$/, async (ctx) => {
+      const [videoId, formatId, resolution] = ctx.match[1].split('|');
+
+      console.log(`📥 Выбор качества: ${resolution} от ${ctx.from?.id}`);
+
+      await this.downloaderService.handleQualitySelection(
+        ctx,
+        bot,
+        videoId,
+        formatId,
+        resolution,
+      );
+    });
+
+    // ==================== MESSAGE HANDLERS ====================
+
+    // Обработка фото и видео (для создания объявления)
+    bot.on(['message:photo', 'message:video'], async (ctx) => {
+      const userId = ctx.from?.id;
+      if (!userId) return;
+
+      // Проверяем, находится ли пользователь в процессе создания объявления
+      const state = this.adminScene.getState(userId);
+
+      if (state === 'waiting_for_media') {
+        await this.adminScene.handleAdMedia(ctx);
+        return;
+      }
+
+      // Редактирование медиа
+      if (state === 'edit_media') {
+        await this.adminScene.handleEditMedia(ctx);
+        return;
+      }
+
+      // Если не в процессе создания - игнорируем
+    });
+
+    // Обработка текстовых сообщений
     bot.on('message:text', async (ctx) => {
       const userId = ctx.from?.id;
       const text = ctx.message?.text;
 
-      if (!userId || !text || text.startsWith('/')) {
+      if (!userId || !text) return;
+
+      // Проверяем состояние для создания объявления
+      const state = this.adminScene.getState(userId);
+
+      // ========== СОЗДАНИЕ ОБЪЯВЛЕНИЯ ==========
+      if (state === 'waiting_for_content') {
+        await this.adminScene.handleAdContent(ctx);
         return;
       }
 
+      if (state === 'waiting_for_button_text') {
+        await this.adminScene.handleButtonText(ctx);
+        return;
+      }
+
+      if (state === 'waiting_for_button_url') {
+        await this.adminScene.handleButtonUrl(ctx);
+        return;
+      }
+
+      if (state === 'waiting_for_custom_interval') {
+        await this.adminScene.handleCustomInterval(ctx);
+        return;
+      }
+
+      // ========== РЕДАКТИРОВАНИЕ ОБЪЯВЛЕНИЯ ==========
+      if (state === 'edit_content') {
+        await this.adminScene.handleEditContent(ctx);
+        return;
+      }
+
+      if (state === 'edit_interval_custom') {
+        await this.adminScene.handleCustomInterval(ctx);
+        return;
+      }
+
+      // ========== СОЗДАНИЕ КАНАЛА ==========
+      if (state === 'waiting_for_channel_id') {
+        await this.adminScene.handleChannelId(ctx);
+        return;
+      }
+
+      if (state === 'waiting_for_channel_name') {
+        await this.adminScene.handleChannelName(ctx);
+        return;
+      }
+
+      // ✅✅✅ ВОТ ВАЖНАЯ ЧАСТЬ, КОТОРАЯ ИСПРАВЛЯЕТ ОШИБКУ ✅✅✅
+      if (state === 'waiting_for_channel_link') {
+        await this.adminScene.handleChannelLink(ctx);
+        return;
+      }
+
+      // ========== ОБРАБОТКА КОМАНД ==========
+      if (text.startsWith('/')) {
+        return; // Команды обрабатываются отдельно
+      }
+
+      // ========== ОБРАБОТКА ССЫЛОК ==========
       const url = text.trim();
       if (!url.startsWith('http')) {
-        return;
+        return; // Не ссылка - игнорируем
       }
 
       console.log(`📥 Ссылка от пользователя ${userId}: ${url}`);
 
       try {
-        // Проверяем бан
         const isBanned = await this.userService.isBanned(BigInt(userId));
         if (isBanned) {
           await ctx.reply(MESSAGES.ERROR_BANNED);
           return;
         }
 
-        // ✅ ПРОВЕРКА ПОДПИСОК
         const hasSubscription = await this.subscriptionService.checkAll(
           userId,
           bot,
         );
+
         if (!hasSubscription) {
           const keyboard =
             await this.subscriptionService.getSubscriptionKeyboard();
@@ -298,8 +507,8 @@ export class BotUpdate implements OnModuleInit {
           });
           return;
         }
+
         await this.downloaderService.handleUrl(ctx, url);
-        // TODO: Передать в DownloaderService
       } catch (error) {
         console.error('❌ Ошибка при обработке ссылки:', error);
         await ctx.reply('❌ Произошла ошибка');

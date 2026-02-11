@@ -11,6 +11,7 @@ import { UploaderModule } from '../uploader/uploader.module';
 import { UserModule } from '../user/user.module';
 import { AdvertisementModule } from '../advertisement/advertisement.module';
 import { VideoSessionCleanupService } from './video-session-cleanup.service';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [CacheModule, UploaderModule, UserModule, AdvertisementModule],
@@ -18,7 +19,7 @@ import { VideoSessionCleanupService } from './video-session-cleanup.service';
     DownloaderService,
     YtdlpService,
     VideoSessionService,
-    VideoSessionCleanupService, // ← Добавили
+    VideoSessionCleanupService,
     {
       provide: QueueService,
       useFactory: (config: ConfigService) => {

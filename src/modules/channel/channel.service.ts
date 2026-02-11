@@ -10,10 +10,11 @@ export class ChannelService {
    * Получить все активные обязательные каналы
    */
   async getActiveChannels(): Promise<RequiredChannel[]> {
-    return this.prisma.requiredChannel.findMany({
+    const channelActive = this.prisma.requiredChannel.findMany({
       where: { isActive: true },
       orderBy: { priority: 'asc' },
     });
+    return channelActive;
   }
 
   /**
@@ -22,7 +23,7 @@ export class ChannelService {
   async create(data: {
     channelId: string;
     channelName: string;
-    channelLink?: string;
+    channelLink: string;
     priority?: number;
   }): Promise<RequiredChannel> {
     return this.prisma.requiredChannel.create({
@@ -47,13 +48,13 @@ export class ChannelService {
   /**
    * Переключить активность канала
    */
-  async toggleActive(id: number): Promise<RequiredChannel> {
+  async toggle(id: number): Promise<RequiredChannel> {
     const channel = await this.prisma.requiredChannel.findUnique({
       where: { id },
     });
 
     if (!channel) {
-      throw new Error('Канал не найден');
+      throw new Error('Channel not found');
     }
 
     return this.prisma.requiredChannel.update({

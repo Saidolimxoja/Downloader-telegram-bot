@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { AdvertisementService } from '../advertisement/advertisement.service';
 import { VideoSessionService } from './video-session.service';
+import { MESSAGES } from 'src/common/constants/messages.constant';
 
 @Injectable()
 export class DownloaderService {
@@ -139,7 +140,7 @@ export class DownloaderService {
 
     if (cached) {
       this.logger.log(`🎯 HIT Cache: ${resolution}`);
-      await ctx.answerCallbackQuery({ text: '🚀 Мгновенная отправка!' });
+      await ctx.answerCallbackQuery(MESSAGES.FROM_CACHE);
 
       const isAudio = resolution === 'audio';
       const caption = `✅ ${videoData.title}\n\n📥 ${resolution}\n\n📢 ${this.yourUsername}`;

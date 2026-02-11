@@ -21,9 +21,14 @@ export class SubscriptionService {
       try {
         const member = await bot.api.getChatMember(channel.channelId, userId);
 
+
         const validStatuses = ['member', 'administrator', 'creator'];
         if (!validStatuses.includes(member.status)) {
-          console.log(`❌ Пользователь ${userId} не подписан на ${channel.channelName}`);
+          console.log(
+            `❌ Пользователь ${userId} не подписан на ${channel.channelName}`,
+          );
+          
+
           return false;
         }
       } catch (error) {
@@ -32,8 +37,6 @@ export class SubscriptionService {
         return false;
       }
     }
-
-    
 
     console.log(`✅ Пользователь ${userId} подписан на все каналы`);
     return true;
@@ -48,7 +51,9 @@ export class SubscriptionService {
 
     for (const channel of channels) {
       const buttonText = `📢 ${channel.channelName}`;
-      const url = channel.channelLink || `https://t.me/${channel.channelId.replace('@', '')}`;
+      const url =
+        channel.channelLink ||
+        `https://t.me/${channel.channelId.replace('@', '')}`;
       keyboard.url(buttonText, url).row();
     }
 

@@ -175,13 +175,24 @@ export class AdvertisementService {
     });
   }
 
-  /**
-   * Обновить объявление
-   */
-  async update(id: number, dto: Partial<CreateAdDto>): Promise<Advertisement> {
+  async findOne(id: number) {
+    return this.prisma.advertisement.findUnique({
+      where: { id },
+    });
+  }
+
+  async update(id: number, data: Partial<CreateAdDto>) {
     return this.prisma.advertisement.update({
       where: { id },
-      data: dto,
+      data: {
+        ...(data.content && { content: data.content }),
+        ...(data.mediaFileId !== undefined && {
+          mediaFileId: data.mediaFileId,
+        }),
+        ...(data.buttonText !== undefined && { buttonText: data.buttonText }),
+        ...(data.buttonUrl !== undefined && { buttonUrl: data.buttonUrl }),
+        ...(data.showInterval && { showInterval: data.showInterval }),
+      },
     });
   }
 
