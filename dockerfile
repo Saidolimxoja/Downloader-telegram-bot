@@ -29,7 +29,6 @@ WORKDIR /app
 # ========================
 COPY package*.json ./
 COPY prisma ./prisma/
-COPY wait-for-it.sh /wait-for-it.sh
 COPY youtube_cookies.txt ./youtube_cookies.txt
 # ========================
 # INSTALL NODE DEPENDENCIES
