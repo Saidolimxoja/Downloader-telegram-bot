@@ -1,4 +1,4 @@
-# 🦍 KingKong Downloader Bot
+# YUKLANGANBOT
 
 Мощный Telegram бот для скачивания видео и аудио с YouTube, Instagram, TikTok и других платформ.
 

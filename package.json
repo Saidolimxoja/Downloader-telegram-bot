@@ -39,6 +39,7 @@
     "grammy": "^1.39.3",
     "input": "^1.0.1",
     "joi": "^18.0.2",
+    "nestjs-telegraf": "^2.9.1",
     "pg": "^8.18.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

@@ -265,21 +265,28 @@ export class DownloaderService {
         },
       );
 
-      // --- СОХРАНЕНИЕ В БАЗУ (КЕШ) ---
-      await this.cacheService.set({
-        url: videoData.id,
-        formatId: formatId,
-        resolution: resolution,
-        fileId: uploadResult.fileId,
-        // ИСПРАВЛЕНИЕ 4: Добавлен обязательный параметр archiveMessageId
-        archiveMessageId: uploadResult.messageId,
-        fileSize: BigInt((await fs.stat(filepath)).size),
-        fileType: isAudio ? 'audio' : 'video',
-        userId: userId,
-        title: videoData.title,
-        duration: videoData.duration || undefined,
-        uploader: videoData.uploader || undefined,
-      });
+      this.logger.log(`📥 Попытка записи в БД кеш для: ${videoData.id}`);
+
+      try {
+        await this.cacheService.set({
+          url: videoData.id, // Это ID видео (например '0WgO3-HVH94')
+          formatId: formatId, // Например '137'
+          resolution: resolution, // Например '1080p'
+          fileId: uploadResult.fileId, // file_id из твоего архивного канала
+          archiveMessageId: uploadResult.messageId,
+          fileSize: BigInt((await fs.stat(filepath)).size),
+          fileType: isAudio ? 'audio' : 'video',
+          userId: userId, // ID того, кто скачал первым
+          title: videoData.title,
+          uploader: videoData.uploader || undefined,
+          duration: videoData.duration || undefined,
+        });
+
+        this.logger.log(`✅ Успешно сохранено в БД`);
+      } catch (dbError) {
+        this.logger.error(`❌ Ошибка сохранения в БД: ${dbError.message}`);
+        // Если здесь ошибка "Unique constraint failed", значит такой cacheKey уже есть
+      }
 
       const userCaption = `✅ ${videoData.title}\n\n📥 ${resolution}\n\n📢 ${this.yourUsername}`;
       if (isAudio) {

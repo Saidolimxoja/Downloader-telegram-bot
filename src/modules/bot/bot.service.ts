@@ -1,14 +1,10 @@
-// src/modules/bot/bot.service.ts
-
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Bot } from 'grammy';
 import { Context } from 'grammy';
-
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
   public bot: Bot<Context>;
-
   constructor(private config: ConfigService) {
     console.log('🔧 BotService: constructor вызван');
 
@@ -23,12 +19,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     this.bot = new Bot<Context>(token);
     console.log('✅ Grammy Bot создан');
   }
-
   async onModuleInit() {
     try {
       console.log('🚀 BotService: onModuleInit начат');
-
-      // Проверяем подключение
       const me = await this.bot.api.getMe();
       console.log(`✅ Бот авторизован: @${me.username} (ID: ${me.id})`);
 
@@ -39,7 +32,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         { command: 'stats', description: 'Статистика' },
         { command: 'channelid', description: 'Получить ID чата' },
         { command: 'checkchannels', description: 'Проверка каналов (админ)' },
-        { command: 'admin', description: 'Админ-панель (админ)' }, // ← Добавь
+        { command: 'admin', description: 'Админ-панель (админ)' },
       ]);
       console.log('✅ Команды установлены');
 
