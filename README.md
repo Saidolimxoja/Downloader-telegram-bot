@@ -148,11 +148,6 @@ npx prisma db seed         # Заполнить тестовыми данным�
 # Линтинг
 npm run lint               # Проверка кода
 npm run lint:fix           # Исправление ошибок
-
-# Тесты
-npm run test               # Unit тесты
-npm run test:e2e           # E2E тесты
-npm run test:cov           # Coverage
 ```
 
 ---
